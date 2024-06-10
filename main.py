@@ -36,7 +36,7 @@ def main():
     parser.add_argument('--sparsity_ratio', type=float, default=0.5, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str, default="unstructured", help="Sparsity type, choose from unstructured, 4:8, 1:4, 2:4, 3:4. \
                         Please choose from the corresponding sparsity ratio")
-    parser.add_argument("--prune_method", type=str, choices=["svd_finetuned", "magnitude", "ri", "wanda", "svd_ri", "svd", "sparsegpt", "ria", "gradient", "entropy", "bayesian", "structured", "movement"])
+    parser.add_argument("--prune_method", type=str, choices=["magnitude", "gradient", "entropy", "monte_carlo", "ria", "sparsegpt", "magnitude_layer", "gradient_layer", "entropy_layer"])
     parser.add_argument("--cache_dir", default="llm_weights", type=str )
     parser.add_argument('--save', action="store_true")
     parser.add_argument('--save_model', type=str, default=None, help='Path to save the pruned model.')
@@ -53,6 +53,7 @@ def main():
     parser.add_argument("--use_cusparselt", action="store_true")
     parser.add_argument("--layer_wise", action="store_true")
     parser.add_argument("--svd_threshold", type=float, default=1e-3)
+    parser.add_argument("--matrix", type=str)
     parser.add_argument("--fast", action="store_true")
     args = parser.parse_args()
     if args.use_cusparselt:
@@ -81,33 +82,25 @@ def main():
     print(model)
     if args.sparsity_ratio != 0:
         print("pruning starts")
-        from lib.prune import prune_magnitude, prune_sparsegpt, prune_ria, check_sparsity, gradient_pruning, entropy_pruning, bayesian_pruning, structured_pruning, movement_pruning
-        if args.prune_method == "wanda":
-            prune_ria(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "magnitude":
-            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "sparsegpt":
-            prune_sparsegpt(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "ria":
-            prune_ria(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "ri":
-            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "svd":
-            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "svd_ri":
-            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "svd_finetuned":
+        from lib.prune import prune_magnitude, gradient_pruning, entropy_pruning, prune_magnitude_Monte_Carlo, prune_ria, prune_sparsegpt, prune_magnitude_layer, gradient_pruning_layer, entropy_pruning_layer, check_sparsity
+        if args.prune_method == "magnitude":
             prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "gradient":
             gradient_pruning(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "entropy":
             entropy_pruning(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "bayesian":
-            bayesian_pruning(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "structured":
-            structured_pruning(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "movement":
-            movement_pruning(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "monte_carlo":
+            prune_magnitude_Monte_Carlo(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "ria":
+            prune_ria(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "sparsegpt":
+            prune_sparsegpt(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "magnitude_layer":
+            prune_magnitude_layer(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "gradient_layer":
+            gradient_pruning_layer(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "entropy_layer":
+            entropy_pruning_layer(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
 
         ################################################################
         print("*"*30)
@@ -130,8 +123,7 @@ def main():
         save_filepath = os.path.join(dirname, filename)
         with open(save_filepath, "a") as f:
             print("method\tactual_sparsity\tsparsity_pattern\treallocation\timportance_score\tlsa\tppl_test", file=f, flush=True)
-            print(f"{args.prune_method}\t{sparsity_ratio:.4f}\t{args.sparsity_type}\t{args.reallocation}\t{args.importance_score}\t{args.lsa}\t{ppl_test:.4f}", file=f, flush=True)
-            
+            print(f"{args.prune_method}\t{sparsity_ratio:.4f}\t{args.sparsity_type}\t{args.reallocation}\t{args.importance_score}\t{args.lsa}\t{ppl_test:.4f}", file=f, flush=True)   
             
     if args.save_model:
         model.save_pretrained(args.save_model)
@@ -147,15 +139,11 @@ def main():
         accelerate=True
         task_list = ["boolq", "rte", "hellaswag", "arc_challenge", "mnli"]
         num_shot = 0
-        
-        
+         
         if args.save_model:
             results = eval_zero_shot(args.save_model, task_list, num_shot, accelerate)
         else:
             results = eval_zero_shot(args.model, task_list, num_shot, accelerate)
-        
-
-    
 
 if __name__ == '__main__':
     main()
