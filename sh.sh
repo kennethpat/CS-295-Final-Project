@@ -1,0 +1,113 @@
+#!/bin/bash
+
+#SBATCH --job-name=myjob     ## job name
+#SBATCH -A CLASS-CS190295_GPU    ## Lab account to charge resources
+#SBATCH -p gpu                ## partition name
+#SBATCH --gres=gpu:V100:2
+#SBATCH --time 1-00:00:00     ## time limit (1 day)
+#SBATCH --error=logs/slurm-%J.err  ## error log file
+#SBATCH --output=logs/slurm-%J.out ## output log file
+
+# module load miniconda3/4.12.0
+source ~/.bashrc
+conda activate ria
+
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix q_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix q_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix q_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix q_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix q_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix q_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix q_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix k_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix k_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix k_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix k_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix k_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix k_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix k_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix v_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix v_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix v_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix v_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix v_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix v_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix v_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix o_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix o_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix o_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix o_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix o_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix o_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix o_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix gate_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix gate_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix gate_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix gate_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix gate_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix gate_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix gate_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix up_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix up_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix up_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix up_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix up_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix up_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix up_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix down_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix down_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix down_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix down_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix down_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix down_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magnitude_layer --matrix down_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix q_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix q_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix q_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix q_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix q_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix q_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix q_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix k_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix k_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix k_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix k_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix k_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix k_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix k_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix v_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix v_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix v_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix v_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix v_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix v_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix v_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix o_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix o_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix o_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix o_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix o_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix o_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix o_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix gate_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix gate_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix gate_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix gate_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix gate_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix gate_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix gate_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix up_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix up_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix up_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix up_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix up_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix up_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix up_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix down_proj --sparsity_ratio 0.05 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix down_proj --sparsity_ratio 0.10 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix down_proj --sparsity_ratio 0.15 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix down_proj --sparsity_ratio 0.20 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix down_proj --sparsity_ratio 0.30 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix down_proj --sparsity_ratio 0.40 --sparsity_type unstructured --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient_layer --matrix down_proj --sparsity_ratio 0.50 --sparsity_type unstructured --save
