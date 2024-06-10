@@ -14,6 +14,9 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
 from lib.eval import eval_ppl            
+        
+            
+
 
 def lexsort(keys, dim=-1):
     idx = keys[0].argsort(dim=dim, stable=True)
@@ -22,10 +25,12 @@ def lexsort(keys, dim=-1):
     
     return idx
 
+
 def maximize_total_value(matrix):
     # linear_sum_assignment
     row_indices, col_indices = linear_sum_assignment(matrix, maximize=True) 
     return col_indices
+
 
 def find_layers(module, layers=[nn.Linear], name=''):
     """
@@ -91,6 +96,7 @@ def prepare_calibration_input(args, model, dataloader, device):
     elif "opt" in args.model:
         layers = model.model.decoder.layers
 
+
     dtype = next(iter(model.parameters())).dtype
     inps = torch.zeros((args.nsamples, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
     inps.requires_grad = False
@@ -126,6 +132,7 @@ def prepare_calibration_input(args, model, dataloader, device):
         return inps, outs, attention_mask, position_ids 
     elif "opt" in args.model:
         return inps, outs, attention_mask
+
 
 def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
@@ -163,6 +170,8 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
                     W_mask = (W_metric<=thresh)
 
             subset[name].weight.data[W_mask] = 0
+            
+
 
 @torch.no_grad()
 def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
@@ -265,6 +274,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
+
 
 def prune_ria(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     use_cache = model.config.use_cache 
@@ -481,6 +491,8 @@ def prune_ria(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, 
 
     model.config.use_cache = use_cache
 
+
+
 def find_layers(module, layers=[nn.Linear], name=''):
     """ Recursively find the layers of a certain type in a module. """
     if type(module) in layers:
@@ -489,6 +501,7 @@ def find_layers(module, layers=[nn.Linear], name=''):
     for name1, child in module.named_children():
         res.update(find_layers(child, layers=layers, name=name + '.' + name1 if name != '' else name1))
     return res
+
 
 # def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
@@ -637,6 +650,7 @@ def prune_magnitude_Monte_Carlo(args, model, tokenizer, device=torch.device("cud
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
 
+
 def gradient_pruning(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -664,6 +678,7 @@ def gradient_pruning(args, model, tokenizer, device=torch.device("cuda:0"), prun
             W_mask = W_mask.to(W.device)
             module.weight.data[W_mask] = 0
 
+
 def entropy_pruning(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -689,6 +704,7 @@ def entropy_pruning(args, model, tokenizer, device=torch.device("cuda:0"), prune
             W_mask = W_mask.to(W.device)
             module.weight.data[W_mask] = 0
 
+
 def find_layers(module, layers=[torch.nn.Linear], name=''):
     """ Recursively find the layers of a certain type in a module. """
     if type(module) in layers:
@@ -698,7 +714,7 @@ def find_layers(module, layers=[torch.nn.Linear], name=''):
         res.update(find_layers(child, layers=layers, name=name + '.' + name1 if name != '' else name1))
     return res
 
-def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+# def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
     # elif "opt" in args.model:
@@ -714,6 +730,7 @@ def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W)
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W.flatten() < pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -725,6 +742,7 @@ def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W)
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W.flatten() < pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -736,6 +754,7 @@ def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W)
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W.flatten() < pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -747,6 +766,7 @@ def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W)
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W.flatten() < pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -758,6 +778,7 @@ def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W)
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W.flatten() < pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -769,6 +790,7 @@ def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W)
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W.flatten() < pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -780,12 +802,33 @@ def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W)
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W.flatten() < pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
 
-def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+
+        for name, module in subset.items(): # q_proj
+            if args.matrix == name:
+                print(f"pruning layer {i} name {name}")
+                W = module.weight.data.clone()
+                num_weights = W.numel()
+                num_prune = int(num_weights * args.sparsity_ratio)
+                W_metric = torch.abs(W)
+                kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
+                W_mask = (W_metric <= kth_value).view(W.shape)
+                W_mask = W_mask.to(W.device)
+                module.weight.data[W_mask] = 0
+
+# def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
     # elif "opt" in args.model:
@@ -804,6 +847,7 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W_grads[name])
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W_metric <= pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -815,6 +859,7 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W_grads[name])
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W_metric <= pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -826,6 +871,7 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W_grads[name])
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W_metric <= pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -837,6 +883,7 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W_grads[name])
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W_metric <= pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -848,6 +895,7 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W_grads[name])
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W_metric <= pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -859,6 +907,7 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W_grads[name])
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W_metric <= pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
@@ -870,12 +919,37 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W_grads[name])
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W_metric <= pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
 
-def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    # Get weight gradients
+    W_grads = {name: param.grad.data.clone() for name, param in model.named_parameters() if param.requires_grad}
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+
+        for name, module in subset.items():
+            if args.matrix == name:
+                print(f"pruning layer {i} name {name}")
+                W = module.weight.data.clone()
+                num_weights = W.numel()
+                num_prune = int(num_weights * args.sparsity_ratio)
+                W_metric = torch.abs(W_grads[name])
+                kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
+                W_mask = (W_metric <= kth_value).view(W.shape)
+                W_mask = W_mask.to(W.device)
+                module.weight.data[W_mask] = 0
+
+# def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
     # elif "opt" in args.model:
@@ -891,6 +965,7 @@ def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = torch.sort(W_metric)[0][num_prune]
                 W_mask = torch.zeros_like(W)
                 W_mask[:, W_metric <= pruning_threshold] = 1
@@ -903,6 +978,7 @@ def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = torch.sort(W_metric)[0][num_prune]
                 W_mask = torch.zeros_like(W)
                 W_mask[:, W_metric <= pruning_threshold] = 1
@@ -915,6 +991,7 @@ def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = torch.sort(W_metric)[0][num_prune]
                 W_mask = torch.zeros_like(W)
                 W_mask[:, W_metric <= pruning_threshold] = 1
@@ -927,6 +1004,7 @@ def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = torch.sort(W_metric)[0][num_prune]
                 W_mask = torch.zeros_like(W)
                 W_mask[:, W_metric <= pruning_threshold] = 1
@@ -939,6 +1017,7 @@ def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = torch.sort(W_metric)[0][num_prune]
                 W_mask = torch.zeros_like(W)
                 W_mask[:, W_metric <= pruning_threshold] = 1
@@ -951,6 +1030,7 @@ def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = torch.sort(W_metric)[0][num_prune]
                 W_mask = torch.zeros_like(W)
                 W_mask[:, W_metric <= pruning_threshold] = 1
@@ -963,8 +1043,242 @@ def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+                num_prune = min(num_prune, W_metric.size(0))  # Ensure num_prune is not greater than the size of W_metric along dimension 0
                 pruning_threshold = torch.sort(W_metric)[0][num_prune]
                 W_mask = torch.zeros_like(W)
                 W_mask[:, W_metric <= pruning_threshold] = 1
+                W_mask = W_mask.to(W.device)
+                module.weight.data[W_mask] = 0
+
+def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+        for name, module in subset.items():
+            if args.matrix == name:
+                print(f"pruning layer {i} name {name}")
+                W = module.weight.data.clone()
+                num_weights = W.numel()
+                num_prune = int(num_weights * args.sparsity_ratio)
+                W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+                kth_value, kth_index = torch.sort(W_metric)[0].kthvalue(num_prune)
+                W_mask = torch.zeros_like(W)
+                W_mask[:, W_metric <= kth_value] = 1
+                W_mask = W_mask.to(W.device)
+                module.weight.data[W_mask] = 0
+
+def prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    # Get weight gradients
+    W_grads = {name: param.grad.data.clone() for name, param in model.named_parameters() if param.requires_grad}
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+        for name, module in subset.items():
+            print(f"pruning layer {i} name {name}")
+            W = module.weight.data.clone()
+            num_weights = W.numel()
+            num_prune = int(num_weights * args.sparsity_ratio)
+
+            # Monte Carlo sampling
+            sampled_indices = random.sample(range(num_weights), num_prune)
+            sampled_weights = W.flatten()[sampled_indices]
+
+            # Scoring function
+            W_metric = torch.abs(sampled_weights)
+
+            # Pruning
+            pruning_threshold = sorted(W_metric, reverse=True)[num_prune - 1]
+            W_mask = (W.flatten() < pruning_threshold).view(W.shape)
+            W_mask = W_mask.to(W.device)
+            module.weight.data[W_mask] = 0
+
+
+# def gradient_pruning_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    # Get weight gradients
+    W_grads = {name: param.grad.data.clone() for name, param in model.named_parameters() if param.requires_grad}
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+        for name, module in subset.items():
+            print(f"pruning layer {i} name {name}")
+            W = module.weight.data.clone()
+            num_weights = W.numel()
+            num_prune = int(num_weights * args.sparsity_ratio)
+
+            # Scoring function
+            W_metric = torch.abs(W_grads[name])
+
+            # Pruning
+            pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
+            W_mask = (W_metric <= pruning_threshold).view(W.shape)
+            W_mask = W_mask.to(W.device)
+            module.weight.data[W_mask] = 0
+
+# def entropy_pruning_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+        for name, module in subset.items():
+            print(f"pruning layer {i} name {name}")
+            W = module.weight.data.clone()
+            num_weights = W.numel()
+            num_prune = int(num_weights * args.sparsity_ratio)
+
+            # Scoring function
+            W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+
+            # Pruning
+            pruning_threshold = torch.sort(W_metric)[0][num_prune]
+            W_mask = torch.zeros_like(W)
+            W_mask[:, W_metric <= pruning_threshold] = 1
+            W_mask = W_mask.to(W.device)
+            module.weight.data[W_mask] = 0
+
+
+
+# def prune_magnitude_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+        for name, module in subset.items():
+            if "q_proj" in name or "k_proj" in name or "v_proj" in name or "o_proj" in name or "gate_proj" in name or "up_proj" in name or "down_proj" in name:
+                print(f"pruning layer {i} name {name}")
+                W = module.weight.data.clone()
+                num_weights = W.numel()
+                num_prune = int(num_weights * args.sparsity_ratio)
+                W_metric = torch.abs(W)
+                pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
+                W_mask = (W.flatten() < pruning_threshold).view(W.shape)
+                W_mask = W_mask.to(W.device)
+                module.weight.data[W_mask] = 0
+
+def prune_magnitude_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), matrix="q_proj"):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+        for name, module in subset.items():
+            if matrix in name:
+                print(f"pruning layer {i} name {name}")
+                W = module.weight.data.clone()
+                num_weights = W.numel()
+                num_prune = int(num_weights * args.sparsity_ratio)
+                W_metric = torch.abs(W)
+                kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
+                W_mask = (W_metric <= kth_value).view(W.shape)
+                W_mask = W_mask.to(W.device)
+                module.weight.data[W_mask] = 0
+
+# def entropy_pruning_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+        for name, module in subset.items():
+            if "q_proj" in name or "k_proj" in name or "v_proj" in name or "o_proj" in name or "gate_proj" in name or "up_proj" in name or "down_proj" in name:
+                print(f"pruning layer {i} name {name}")
+                W = module.weight.data.clone()
+                num_weights = W.numel()
+                num_prune = int(num_weights * args.sparsity_ratio)
+                W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+                pruning_threshold = torch.sort(W_metric)[0][num_prune]
+                W_mask = torch.zeros_like(W)
+                W_mask[:, W_metric <= pruning_threshold] = 1
+                W_mask = W_mask.to(W.device)
+                module.weight.data[W_mask] = 0
+
+
+# def gradient_pruning_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    # Get weight gradients
+    W_grads = {name: param.grad.data.clone() for name, param in model.named_parameters() if param.requires_grad}
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+        for name, module in subset.items():
+            if "q_proj" in name or "k_proj" in name or "v_proj" in name or "o_proj" in name or "gate_proj" in name or "up_proj" in name or "down_proj" in name:
+                print(f"pruning layer {i} name {name}")
+                W = module.weight.data.clone()
+                num_weights = W.numel()
+                num_prune = int(num_weights * args.sparsity_ratio)
+                W_metric = torch.abs(W_grads[name])
+                pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
+                W_mask = (W_metric <= pruning_threshold).view(W.shape)
+                W_mask = W_mask.to(W.device)
+                module.weight.data[W_mask] = 0
+
+def entropy_pruning_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), matrix="q_proj"):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+        for name, module in subset.items():
+            if matrix in name:
+                print(f"pruning layer {i} name {name}")
+                W = module.weight.data.clone()
+                num_weights = W.numel()
+                num_prune = int(num_weights * args.sparsity_ratio)
+                W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
+                kth_value, kth_index = torch.sort(W_metric)[0].kthvalue(num_prune)
+                W_mask = torch.zeros_like(W)
+                W_mask[:, W_metric <= kth_value] = 1
+                W_mask = W_mask.to(W.device)
+                module.weight.data[W_mask] = 0
+
+def gradient_pruning_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), matrix="q_proj"):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+
+    # Get weight gradients
+    W_grads = {name: param.grad.data.clone() for name, param in model.named_parameters() if param.requires_grad}
+
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+        for name, module in subset.items():
+            if matrix in name:
+                print(f"pruning layer {i} name {name}")
+                W = module.weight.data.clone()
+                num_weights = W.numel()
+                num_prune = int(num_weights * args.sparsity_ratio)
+                W_metric = torch.abs(W_grads[name])
+                kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
+                W_mask = (W_metric <= kth_value).view(W.shape)
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
