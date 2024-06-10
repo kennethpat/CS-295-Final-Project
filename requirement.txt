@@ -1,0 +1,8 @@
+torch==2.2.0.dev20231010+cu121
+torchvision==0.17.0.dev20231010+cu121
+torchaudio==2.2.0.dev20231010+cu121
+transformers==4.36.2
+sentencepiece==0.1.99
+datasets==2.16.1
+bitsandbytes==0.42.0
+accelerate==0.26.1
