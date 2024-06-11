@@ -276,7 +276,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     torch.cuda.empty_cache()
 
 
-# def prune_ria(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+def prune_ria(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     use_cache = model.config.use_cache 
     model.config.use_cache = False 
     print("loading calibration data")
@@ -329,6 +329,219 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             h.remove()
 
         for name in subset:
+            if "mlp" in name:
+                
+
+                if args.gptq:
+                    print('Quantizing ...')
+                    wrapped_layers[name].fasterquant(
+                        percdamp=args.percdamp, groupsize=args.groupsize, actorder=args.act_order, static_groups=args.static_groups
+                    )
+
+                print(f"pruning layer {i} name {name}")
+                W = subset[name].weight.data.clone()
+                if args.prune_method == "wanda":
+                    W_metric = torch.abs(W) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1, -1)))
+                elif args.prune_method == "ria":
+                    W_metric = (torch.abs(W) / torch.sum(torch.abs(W), dim=0) + torch.abs(W) / torch.sum(torch.abs(W), dim=1).reshape(-1, 1)) * (torch.sqrt(wrapped_layers[name].scaler_row.reshape((1, -1)))) ** args.a
+                W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
+
+                if prune_n != 0:
+                    # structured n:m sparsity
+                    if args.reallocation:
+                        """
+                        Using Heuristic Channel Reallocation
+                        """
+
+                        # Try with directly N:M sparsity
+                        for ii in range(W_metric.shape[1]):
+                            if ii % prune_m == 0:
+                                tmp = W_metric[:, ii:(ii + prune_m)].float()
+                                W_mask.scatter_(1, ii + torch.topk(tmp, prune_n, dim=1, largest=False)[1], True)
+
+                        pre_score = torch.sum(W_metric[W_mask == 0].type(torch.float32)).item()
+                        print("The total value before resort: ", pre_score)
+
+                        # assign importance score to each columns
+                        if args.importance_score == "sum":
+                            # sum the total value of each column
+                            sorted_idx = torch.sort(torch.sum(W_metric, dim=0))[1]
+                        elif args.importance_score == "retained_degree_unstructured":
+                            # try unstructured pruning
+                            thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.shape[0] * W.shape[1] * args.sparsity_ratio)].cpu()
+                            W_mask = (W_metric <= thresh)
+                            keys = [torch.sum(W_mask, dim=0), torch.sum((W_mask == 0) * W_metric, dim=0)]
+                            sorted_idx = lexsort(keys)
+                        elif args.importance_score == "retained_degree_per_outneuron":
+                            # try unstructured pruning with per output neuron pruning
+                            sort_res = torch.sort(W_metric, dim=-1, stable=True)
+                            indices = sort_res[1][:, :int(W_metric.shape[1] * args.sparsity_ratio)]
+                            W_mask = torch.zeros_like(W_metric) == 1
+                            W_mask.scatter_(1, indices, True)
+
+                            keys = [torch.sum(W_mask, dim=0), torch.sum((W_mask == 0) * W_metric, dim=0)]
+                            sorted_idx = lexsort(keys)
+
+                        # channel reallocation
+                        index = torch.zeros_like(sorted_idx)
+                        for ii in range(1, prune_m + 1):
+                            if ii % 2 == 1:
+                                index[ii - 1::prune_m] = sorted_idx[int(W_metric.shape[1] * (ii - 1) / prune_m):int(W_metric.shape[1] * ii / prune_m)]
+                            else:
+                                index[ii - 1::prune_m] = sorted_idx[int(W_metric.shape[1] * (ii - 1) / prune_m):int(W_metric.shape[1] * ii / prune_m)].flip(0)
+
+                        W_metric_resort = W_metric[:, index].clone()
+                        W_strip_value = torch.zeros(W_metric.shape[1] // prune_m).to(device)
+                        W_mask_permute = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
+                        for ii in range(W_metric.shape[1]):
+                            if ii % prune_m == 0:
+                                tmp = W_metric_resort[:, ii:(ii + prune_m)].float()
+                                W_mask_permute.scatter_(1, ii + torch.topk(tmp, prune_n, dim=1, largest=False)[1], True)
+                                W_metric_strip = W_metric_resort[:, ii:(ii + prune_m)]
+                                W_strip_value[ii // prune_m] = torch.sum(W_metric_strip[W_mask_permute[:, ii:(ii + prune_m)] == 0])
+
+                        after_score = torch.sum(W_strip_value.type(torch.float32)).item()
+                        print("The total value after heuristic channel reallocation: ", after_score)
+
+                        if args.lsa:
+                            """
+                            Using linear sum assignment to finetune the N:M
+                            """
+                            permutation_device = "cuda:7"
+                            if args.fast:
+                                print("Use Fast!!")
+                                fast_name_list = ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj"]
+                                if name in fast_name_list:
+                                    blocks = 4
+                                elif "up_proj" in name or "gate_proj" in name:
+                                    blocks = 8
+                                else:
+                                    blocks = 16
+                            else:
+                                blocks = 1
+
+                            shape = W_metric.shape[1] // prune_m // blocks
+                            rows = torch.arange(shape).to(permutation_device)
+                            lsa_columns = torch.arange(prune_m).to(permutation_device)
+
+                            def lsa(W_metric, lsa_column, shape, rows, prune_n, prune_m, device):
+                                W_metric = W_metric.to(device)
+                                score_matrix = torch.zeros(shape, shape).to(device)  # score matrix of LSA
+                                num_parallel = 1  # How many parallel computation will be used.
+
+                                for row in range(shape // num_parallel):
+                                    strip_idx = torch.zeros(num_parallel, shape, prune_m).long().to(device)
+                                    block_columns = torch.arange(prune_m).to(device)
+                                    columns_mask = block_columns % prune_m == lsa_column
+                                    row_indices = row * num_parallel + torch.arange(num_parallel)
+                                    block_columns[columns_mask] = -1
+                                    strip_idx[:, row_indices, block_columns[~columns_mask]] = block_columns[columns_mask]
+
+                                    rows_idx = torch.ones(prune_n).long().to(device) * row_indices[:, None]
+                                    for column in range(prune_m):
+                                        tmp_score = torch.sum(W_metric[rows_idx, strip_idx[:, :, column], :], dim=-1)
+                                        score_matrix[row_indices, tmp_score] = column
+
+                                print("score matrix completed.")
+                                score_matrix = torch.topk(score_matrix, prune_n, dim=-1)[1]
+                                for i in range(len(score_matrix)):
+                                    assignment_rows = rows[i::len(score_matrix)]
+                                    assignment_cols = torch.zeros_like(assignment_rows)
+                                    for j in range(len(assignment_rows)):
+                                        assignment_cols[j] = score_matrix[i, j]
+
+                                    lsa_column.scatter_(0, assignment_rows, assignment_cols)
+                                return lsa_column
+
+                            lsa_columns = lsa(W_metric_resort, lsa_columns, shape, rows, prune_n, prune_m, permutation_device)
+                            rows_idx = torch.arange(W_metric.shape[1] // prune_m * prune_n).to(device)
+                            W_mask_permute = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
+                            for ii in range(W_metric.shape[1] // prune_m):
+                                if ii % prune_m == 0:
+                                    W_mask_permute.scatter_(1, ii + torch.topk(W_metric_resort[:, ii:(ii + prune_m)], prune_n, dim=1, largest=False)[1], True)
+                                    block_row_idx = rows_idx[rows_idx // prune_n == ii]
+                                    block_row_idx = torch.arange(W_metric.shape[0])[block_row_idx]
+                                    row_idx = block_row_idx.repeat(prune_m).reshape(W_metric.shape[1] // prune_m, prune_m)
+                                    for j in range(len(row_idx)):
+                                        row = row_idx[j]
+                                        col = lsa_columns[row].to(device)
+                                        row += ii
+                                        W_mask_permute[row, col] = False
+
+                            W_mask.scatter_(1, index, W_mask_permute)
+
+                        subset[name].weight.data[W_mask] = 0
+                        subset[name].scaler_row[W_mask] = 0
+
+                        subset[name].weight.data = W * (1 - W_mask)
+                        print("The W_mask sum after heuristic channel reallocation: ", torch.sum(W_mask).item())
+                        print("The W_mask sum after heuristic channel reallocation per block: ", torch.sum(W_mask[:, :W_metric.shape[1] // prune_m * prune_m]).item())
+
+                    else:
+                        """
+                        Using direct N:M sparsity
+                        """
+                        for ii in range(W_metric.shape[1]):
+                            if ii % prune_m == 0:
+                                tmp = W_metric[:, ii:(ii + prune_m)].float()
+                                W_mask.scatter_(1, ii + torch.topk(tmp, prune_n, dim=1, largest=False)[1], True)
+
+                        subset[name].weight.data[W_mask] = 0
+                        subset[name].scaler_row[W_mask] = 0
+
+                        subset[name].weight.data = W * (1 - W_mask)
+                        print("The W_mask sum after direct N:M sparsity: ", torch.sum(W_mask).item())
+
+    model.config.use_cache = use_cache
+
+
+'''
+def prune_ria(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    use_cache = model.config.use_cache 
+    model.config.use_cache = False 
+    print("loading calibration data")
+    dataloader, _ = get_loaders(args.calib_dataset, nsamples=args.nsamples, seed=args.seed, seqlen=args.seqlen, tokenizer=tokenizer)
+    print("dataset loading complete")
+
+    layers = model.model.layers
+
+    for i in range(len(layers)):
+        layer = layers[i]
+        subset = find_layers(layer)
+        if "llama" in args.model:
+            if f"model.layers.{i}" in model.hf_device_map:
+                dev = model.hf_device_map[f"model.layers.{i}"]
+                inps, outs, attention_mask, position_ids = inps.to(dev), outs.to(dev), attention_mask.to(dev), position_ids.to(dev)
+
+        wrapped_layers = {}
+        for name in subset:
+            wrapped_layers[name] = WrappedGPT(args, subset[name], layer_name=name, reconstruct=args.reconstruction)
+            if args.gptq:
+                wrapped_layers[name].quantizer = Quantizer()
+                wrapped_layers[name].quantizer.configure(
+                    args.wbits, perchannel=True, sym=args.sym, mse=False
+                )
+
+        def add_batch(name):
+            def tmp(_, inp, out):
+                wrapped_layers[name].add_batch(inp[0].data, out.data)
+            return tmp
+
+        handles = []
+        for name in wrapped_layers:
+            handles.append(subset[name].register_forward_hook(add_batch(name)))
+        for j in range(args.nsamples):
+            with torch.no_grad():
+                if "llama" in args.model:
+                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+                elif "opt" in args.model:
+                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+
+        for h in handles:
+            h.remove()
+        torch.cuda.empty_cache()
+
+        for name in subset:
             if args.gptq:
                 print('Quantizing ...')
                 wrapped_layers[name].fasterquant(
@@ -344,13 +557,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
 
             if prune_n != 0:
-                # structured n:m sparsity
                 if args.reallocation:
-                    """
-                    Using Heuristic Channel Reallocation
-                    """
-
-                    # Try with directly N:M sparsity
                     for ii in range(W_metric.shape[1]):
                         if ii % prune_m == 0:
                             tmp = W_metric[:, ii:(ii + prune_m)].float()
@@ -359,18 +566,14 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
                     pre_score = torch.sum(W_metric[W_mask == 0].type(torch.float32)).item()
                     print("The total value before resort: ", pre_score)
 
-                    # assign importance score to each columns
                     if args.importance_score == "sum":
-                        # sum the total value of each column
                         sorted_idx = torch.sort(torch.sum(W_metric, dim=0))[1]
                     elif args.importance_score == "retained_degree_unstructured":
-                        # try unstructured pruning
                         thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.shape[0] * W.shape[1] * args.sparsity_ratio)].cpu()
                         W_mask = (W_metric <= thresh)
                         keys = [torch.sum(W_mask, dim=0), torch.sum((W_mask == 0) * W_metric, dim=0)]
                         sorted_idx = lexsort(keys)
                     elif args.importance_score == "retained_degree_per_outneuron":
-                        # try unstructured pruning with per output neuron pruning
                         sort_res = torch.sort(W_metric, dim=-1, stable=True)
                         indices = sort_res[1][:, :int(W_metric.shape[1] * args.sparsity_ratio)]
                         W_mask = torch.zeros_like(W_metric) == 1
@@ -379,7 +582,6 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
                         keys = [torch.sum(W_mask, dim=0), torch.sum((W_mask == 0) * W_metric, dim=0)]
                         sorted_idx = lexsort(keys)
 
-                    # channel reallocation
                     index = torch.zeros_like(sorted_idx)
                     for ii in range(1, prune_m + 1):
                         if ii % 2 == 1:
@@ -401,9 +603,6 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
                     print("The total value after heuristic channel reallocation: ", after_score)
 
                     if args.lsa:
-                        """
-                        Using linear sum assignment to finetune the N:M
-                        """
                         permutation_device = "cuda:7"
                         if args.fast:
                             print("Use Fast!!")
@@ -423,8 +622,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 
                         def lsa(W_metric, lsa_column, shape, rows, prune_n, prune_m, device):
                             W_metric = W_metric.to(device)
-                            score_matrix = torch.zeros(shape, shape).to(device)  # score matrix of LSA
-                            num_parallel = 1  # How many parallel computation will be used.
+                            score_matrix = torch.zeros(shape, shape).to(device)
 
                             for row in range(shape // num_parallel):
                                 strip_idx = torch.zeros(num_parallel, shape, prune_m).long().to(device)
@@ -452,7 +650,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 
                         lsa_columns = lsa(W_metric_resort, lsa_columns, shape, rows, prune_n, prune_m, permutation_device)
                         rows_idx = torch.arange(W_metric.shape[1] // prune_m * prune_n).to(device)
-                        W_mask_permute = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
+                        W_mask_permute = (torch.zeros_like(W_metric) == 1)
                         for ii in range(W_metric.shape[1] // prune_m):
                             if ii % prune_m == 0:
                                 W_mask_permute.scatter_(1, ii + torch.topk(W_metric_resort[:, ii:(ii + prune_m)], prune_n, dim=1, largest=False)[1], True)
@@ -475,9 +673,6 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
                     print("The W_mask sum after heuristic channel reallocation per block: ", torch.sum(W_mask[:, :W_metric.shape[1] // prune_m * prune_m]).item())
 
                 else:
-                    """
-                    Using direct N:M sparsity
-                    """
                     for ii in range(W_metric.shape[1]):
                         if ii % prune_m == 0:
                             tmp = W_metric[:, ii:(ii + prune_m)].float()
@@ -489,261 +684,11 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
                     subset[name].weight.data = W * (1 - W_mask)
                     print("The W_mask sum after direct N:M sparsity: ", torch.sum(W_mask).item())
 
+        del wrapped_layers, subset, W, W_metric, W_mask
+        torch.cuda.empty_cache()
+
     model.config.use_cache = use_cache
-
-def prune_ria(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
-    use_cache = model.config.use_cache 
-    model.config.use_cache = False 
-    print("loading calibdation data")
-    dataloader, _ = get_loaders(args.calib_dataset,nsamples=args.nsamples,seed=args.seed,seqlen=args.seqlen,tokenizer=tokenizer)
-    print("dataset loading complete")
-    with torch.no_grad():
-        if "llama" in args.model:
-            inps, outs, attention_mask, position_ids = prepare_calibration_input(args, model, dataloader, device)
-        elif "opt" in args.model:
-            inps, outs, attention_mask= prepare_calibration_input(args, model, dataloader, device)
-    if "llama" in args.model:
-        layers = model.model.layers
-    elif "opt" in args.model:
-        layers = model.model.decoder.layers
-    
-
-    for i in range(len(layers)):
-        layer = layers[i]
-        subset = find_layers(layer)
-        if "llama" in args.model:
-            if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
-                dev = model.hf_device_map[f"model.layers.{i}"]
-                # inps, outs, attention_mask, position_ids = inps.to(dev), outs.to(dev), attention_mask.to(dev), position_ids.to(dev)
-                inps, outs, position_ids = inps.to(dev), outs.to(dev), position_ids.to(dev)
-        wrapped_layers = {}
-        for name in subset:
-            wrapped_layers[name] = WrappedGPT(args, subset[name], layer_name=name, reconstruct=args.reconstruction)
-            if args.gptq:
-                wrapped_layers[name].quantizer = Quantizer()
-                wrapped_layers[name].quantizer.configure(
-                        args.wbits, perchannel=True, sym=args.sym, mse=False
-                    )
-
-        def add_batch(name):
-            def tmp(_, inp, out):
-                wrapped_layers[name].add_batch(inp[0].data, out.data)
-            return tmp
-
-        handles = []
-        for name in wrapped_layers:
-            handles.append(subset[name].register_forward_hook(add_batch(name)))
-        for j in range(args.nsamples):
-            with torch.no_grad():
-                if "llama" in args.model:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
-                elif "opt" in args.model:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
-
-        for h in handles:
-            h.remove()
-
-        for name in subset:
-            if args.gptq:
-                print('Quantizing ...')
-                wrapped_layers[name].fasterquant(
-                    percdamp=args.percdamp, groupsize=args.groupsize, actorder=args.act_order, static_groups=args.static_groups
-                )
-            
-            print(f"pruning layer {i} name {name}")
-            W = subset[name].weight.data.clone()
-            if args.prune_method == "wanda":
-                W_metric = torch.abs(W) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
-            elif args.prune_method == "ria":
-                W_metric = (torch.abs(W)/torch.sum(torch.abs(W), dim=0) + torch.abs(W)/torch.sum(torch.abs(W), dim=1).reshape(-1, 1)) * (torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1))))**args.a
-            W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
-            if prune_n != 0:
-                # structured n:m sparsity
-                if args.reallocation:
-                    """
-                        Using Heuristic Channel Reallocation
-                    """
-                    
-                    # Try with directly N:M sparsity
-                    for ii in range(W_metric.shape[1]):
-                        if ii % prune_m == 0:
-                            tmp = W_metric[:,ii:(ii+prune_m)].float()
-                            W_mask.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
-                    
-                    pre_score = torch.sum(W_metric[W_mask==0].type(torch.float32)).item()
-                    print("The total value before resort: ", pre_score)
-                    
-                    
-                    # assign importance score to each columns
-                    if args.importance_score == "sum":
-                        # sum the total value of each column
-                        sorted_idx = torch.sort(torch.sum(W_metric, dim=0))[1]
-                    elif args.importance_score == "retained_degree_unstructured":
-                        # try unstructured pruning
-                        thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.shape[0]* W.shape[1]*args.sparsity_ratio)].cpu()
-                        W_mask = (W_metric<=thresh)
-                        keys = [torch.sum(W_mask, dim=0), torch.sum((W_mask==0)*W_metric, dim=0)]
-                        sorted_idx = lexsort(keys)
-                    elif args.importance_score == "retained_degree_per_outneuron":
-                        # try unstructured pruning with per output neuron pruning
-                        sort_res = torch.sort(W_metric, dim=-1, stable=True)
-                        indices = sort_res[1][:,:int(W_metric.shape[1]*args.sparsity_ratio)]
-                        W_mask = torch.zeros_like(W_metric)==1
-                        W_mask.scatter_(1, indices, True)
-                        
-                        keys = [torch.sum(W_mask, dim=0), torch.sum((W_mask==0)*W_metric, dim=0)]
-                        sorted_idx = lexsort(keys)
-                    
-                    # channel reallocation
-                    index = torch.zeros_like(sorted_idx)
-                    for ii in range(1, prune_m+1):
-                        if ii % 2 == 1:
-                            index[ii-1::prune_m] = sorted_idx[int(W_metric.shape[1]* (ii-1)/prune_m) :int(W_metric.shape[1]* ii/prune_m)]
-                        else:
-                            index[ii-1::prune_m] = sorted_idx[int(W_metric.shape[1]* (ii-1)/prune_m) :int(W_metric.shape[1]* ii/prune_m)].flip(0)
-                        # index[ii-1::prune_m] = sorted_idx[int(W_metric.shape[1]* (ii-1)/prune_m) :int(W_metric.shape[1]* ii/prune_m)]
-                    W_metric_resort = W_metric[:, index].clone()
-                    
-                    W_strip_value = torch.zeros(W_metric.shape[1]//prune_m).to(device)
-                    W_mask_permute = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
-                    for ii in range(W_metric.shape[1]):
-                        if ii % prune_m == 0:
-                            tmp = W_metric_resort[:,ii:(ii+prune_m)].float()
-                            W_mask_permute.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
-                            W_metric_strip = W_metric_resort[:, ii:(ii+prune_m)]
-                            W_strip_value[ii//prune_m] = torch.sum(W_metric_strip[W_mask_permute[:, ii:(ii+prune_m)]==0])
-                        
-                    after_score = torch.sum(W_strip_value.type(torch.float32)).item()
-                    print("The total value after heuristic channel reallocation: ", after_score)
-                    
-                    if args.lsa:
-                        """
-                            Using linear sum assignment to finetune the N:M
-                        """
-                        permutation_device = "cuda:7"
-                        if args.fast:
-                            print("Use Fast!!")
-                            fast_name_list = ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj"]
-                            if name in fast_name_list:
-                                blocks = 4
-                            elif "up_proj" in name or "gate_proj" in name:
-                                blocks = 8
-                            else:
-                                blocks = 16
-                        else:
-                            blocks = 1
-                        
-
-                        shape = W_metric.shape[1]//prune_m//blocks
-                        rows = torch.arange(shape).to(permutation_device)
-                        lsa_columns = torch.arange(prune_m).to(permutation_device)
-                        def lsa(W_metric, lsa_column, shape, rows, prune_n, prune_m, device):
-                            W_metric = W_metric.to(device)
-                            score_matrix = torch.zeros(shape, shape).to(device) # score matrix of LSA
-                            num_parallel = 1 # How many parallel computation will be used.
-                            
-                            
-                            for row in range(shape//num_parallel):
-                                strip_idx = torch.zeros(num_parallel, shape, prune_m).long().to(device)
-                                block_columns = torch.arange(prune_m).to(device)
-                                columns_mask = block_columns != lsa_column
-                                block_columns = block_columns[columns_mask]
-                                
-                                strip_idx[:, :, 0] = (rows * prune_m).reshape(1, -1) + lsa_column
-                                strip_idx[:, :, 1:] = block_columns.reshape(1, 1, -1) + torch.arange(row*num_parallel, (row+1)*num_parallel).reshape(-1, 1, 1).to(device) * prune_m
-                                
-                                tmp = W_metric[:, strip_idx].transpose(1, 0).transpose(2, 1)
-                                
-                                W_mask = torch.zeros_like(tmp).to(device)
-                                
-                                
-                                
-                                tmp_index = torch.sort(tmp, dim=-1)[1]
-                                W_mask.scatter_(dim=-1, index=tmp_index[:, :, :, :prune_n], value=1)
-                    
-                                score_matrix[:, row*num_parallel:(row+1)*num_parallel] = torch.sum(torch.sum((tmp*(W_mask==0)), dim=-1), dim=-1).transpose(1, 0)
-                            
-                            score_matrix = score_matrix.transpose(1, 0)
-                            
-                            col_indices = torch.LongTensor(maximize_total_value(score_matrix.cpu())).to(device)
-                            idx = torch.arange(W_metric.shape[1]).long().to(device)
-                            idx[rows* prune_m + lsa_column] = col_indices * prune_m + lsa_column
-                            
-                            return idx
-                        
-                        z = 0
-                        for lsa_column in lsa_columns:
-                            t1 = time.time()
-                            for ii in range(blocks):
-                                index_tmp = index[ii*len(index)//blocks:(ii+1)*len(index)//blocks]
-                                permute_idx = lsa(W_metric[:, index_tmp], lsa_column, shape, rows, prune_n, prune_m, permutation_device)
-                                permute_idx = permute_idx.to(index.device)
-
-                                index[ii*len(index)//blocks:(ii+1)*len(index)//blocks] = index_tmp[permute_idx]
-                            t2 = time.time()
-                            W_metric_permute = W_metric[:, index]
-                            
-                            W_mask_permute = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
-                            for ii in range(W_metric.shape[1]):
-                                if ii % prune_m == 0:
-                                    tmp = W_metric_permute[:,ii:(ii+prune_m)].float()
-                                    W_mask_permute.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
-                                    W_metric_strip = W_metric_permute[:, ii:(ii+prune_m)]
-                                    W_strip_value[ii//prune_m] = torch.sum(W_metric_strip[W_mask_permute[:, ii:(ii+prune_m)]==0])
-                            print("The total value after linear sum assignment round {}: {}, running time: {}s".format(z, torch.sum(W_strip_value.type(torch.float32)).item(), round(t2-t1, 2)))
-                            
-                            z += 1
-                        
-                        
-                    W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
-                    W_mask[:, index] = W_mask_permute
-                    
-                    if args.semi_sparse_acc and prune_n == 2 and prune_m == 4:
-                        subset[name].weight = torch.nn.Parameter(to_sparse_semi_structured((W_mask_permute==0)*W[:, index].half()))
-                        subset[name].mask = W_mask_permute==0
-                    else:
-                        subset[name].weight.data[W_mask] = 0
-
-                        
-                else:
-                    # Directly N:M
-                    W_mask = (torch.zeros_like(W_metric) == 1)
-                    for ii in range(W_metric.shape[1]):
-                        if ii % prune_m == 0:
-                            tmp = W_metric[:,ii:(ii+prune_m)].float()
-                            W_mask.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
-                    
-                    if args.semi_sparse_acc:
-                        subset[name].weight = torch.nn.Parameter(to_sparse_semi_structured(((W_mask==0)*W)).half(), requires_grad=False)
-                        subset[name].mask = W_mask==0
-                    else:
-                        subset[name].weight.data[W_mask] = 0
-            else:
-                if args.per_outneuron:
-                    sort_res = torch.sort(W_metric, dim=-1, stable=True)
-                    # unstructured pruning
-                    indices = sort_res[1][:,:int(W_metric.shape[1]*args.sparsity_ratio)]
-                    W_mask.scatter_(1, indices, True)
-                else:
-                    thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.shape[0]* W.shape[1]*args.sparsity_ratio)].cpu()
-                    W_mask = (W_metric<=thresh)
-                    
-                if args.reconstruction:
-                    wrapped_layers[name].fasterprune(args.sparsity_ratio, mask=W_mask)
-                else:
-                    subset[name].weight.data[W_mask] = 0  ## set weights to zero 
-            wrapped_layers[name].free()
-
-        for j in range(args.nsamples):
-            with torch.no_grad():
-                if "llama" in args.model:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
-                elif "opt" in args.model:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
-        inps, outs = outs, inps
-
-    model.config.use_cache = use_cache 
-    torch.cuda.empty_cache()
+'''
 
 def find_layers(module, layers=[nn.Linear], name=''):
     """ Recursively find the layers of a certain type in a module. """
@@ -754,7 +699,7 @@ def find_layers(module, layers=[nn.Linear], name=''):
         res.update(find_layers(child, layers=layers, name=name + '.' + name1 if name != '' else name1))
     return res
 
-
+'''
 # def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -860,7 +805,8 @@ def find_layers(module, layers=[nn.Linear], name=''):
                 module.weight.data[W_mask] = 0
 
         print(f"Iteration {iteration + 1}/{num_iterations}, Sparsity Ratio: {current_sparsity_ratio:.4f}")
-
+'''
+        
 def prune_magnitude_Monte_Carlo(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -885,7 +831,7 @@ def prune_magnitude_Monte_Carlo(args, model, tokenizer, device=torch.device("cud
 
             for name, module in subset.items():
                 print(f"pruning layer {i} name {name}")
-                W = module.weight.data.clone()
+                # W = module.weight.data.clone()
                 num_weights = W.numel()
                 num_prune = int(num_weights * (final_sparsity_ratio - current_sparsity_ratio))
 
@@ -899,7 +845,7 @@ def prune_magnitude_Monte_Carlo(args, model, tokenizer, device=torch.device("cud
                 # Pruning
                 pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
                 W_mask = (W.flatten() < pruning_threshold).view(W.shape)
-                W_mask = W_mask.to(W.device)
+                # W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
 
 
@@ -917,7 +863,7 @@ def gradient_pruning(args, model, tokenizer, device=torch.device("cuda:0"), prun
 
         for name, module in subset.items():
             print(f"pruning layer {i} name {name}")
-            W = module.weight.data.clone()
+            # W = module.weight.data.clone()
             num_weights = W.numel()
             num_prune = int(num_weights * args.sparsity_ratio)
 
@@ -927,7 +873,7 @@ def gradient_pruning(args, model, tokenizer, device=torch.device("cuda:0"), prun
             # Pruning
             pruning_threshold = W_metric.kthvalue(num_prune, dim=0, keepdim=True)[0]
             W_mask = (W_metric <= pruning_threshold).view(W.shape)
-            W_mask = W_mask.to(W.device)
+            # W_mask = W_mask.to(W.device)
             module.weight.data[W_mask] = 0
 
 
@@ -942,7 +888,7 @@ def entropy_pruning(args, model, tokenizer, device=torch.device("cuda:0"), prune
 
         for name, module in subset.items():
             print(f"pruning layer {i} name {name}")
-            W = module.weight.data.clone()
+            # W = module.weight.data.clone()
             num_weights = W.numel()
             num_prune = int(num_weights * args.sparsity_ratio)
 
@@ -953,7 +899,7 @@ def entropy_pruning(args, model, tokenizer, device=torch.device("cuda:0"), prune
             pruning_threshold = torch.sort(W_metric)[0][num_prune]
             W_mask = torch.zeros_like(W)
             W_mask[:, W_metric <= pruning_threshold] = 1
-            W_mask = W_mask.to(W.device)
+            # W_mask = W_mask.to(W.device)
             module.weight.data[W_mask] = 0
 
 
@@ -1071,16 +1017,16 @@ def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"),
         for name, module in subset.items(): # q_proj
             if args.matrix == name:
                 print(f"pruning layer {i} name {name}")
-                W = module.weight.data.clone()
+                # W = module.weight.data.clone()
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W)
                 kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
                 W_mask = (W_metric <= kth_value).view(W.shape)
-                W_mask = W_mask.to(W.device)
+                # W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
-
-# def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+'''
+def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
     # elif "opt" in args.model:
@@ -1176,6 +1122,7 @@ def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 W_mask = (W_metric <= pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
+'''
 
 def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
@@ -1192,15 +1139,15 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
         for name, module in subset.items():
             if args.matrix == name:
                 print(f"pruning layer {i} name {name}")
-                W = module.weight.data.clone()
+                # W = module.weight.data.clone()
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W_grads[name])
                 kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
                 W_mask = (W_metric <= kth_value).view(W.shape)
-                W_mask = W_mask.to(W.device)
+                # W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
-
+'''
 # def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -1301,6 +1248,7 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
                 W_mask[:, W_metric <= pruning_threshold] = 1
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
+'''
 
 def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
@@ -1313,14 +1261,14 @@ def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"),
         for name, module in subset.items():
             if args.matrix == name:
                 print(f"pruning layer {i} name {name}")
-                W = module.weight.data.clone()
+                # W = module.weight.data.clone()
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = -(W * torch.log(W + 1e-8)).sum(dim=0)  # Entropy along output dimension
                 kth_value, kth_index = torch.sort(W_metric)[0].kthvalue(num_prune)
                 W_mask = torch.zeros_like(W)
                 W_mask[:, W_metric <= kth_value] = 1
-                W_mask = W_mask.to(W.device)
+                # W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
 
 def prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
@@ -1350,10 +1298,10 @@ def prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device=torch.
             # Pruning
             pruning_threshold = sorted(W_metric, reverse=True)[num_prune - 1]
             W_mask = (W.flatten() < pruning_threshold).view(W.shape)
-            W_mask = W_mask.to(W.device)
+            # W_mask = W_mask.to(W.device)
             module.weight.data[W_mask] = 0
 
-
+'''
 # def gradient_pruning_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -1425,6 +1373,7 @@ def prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device=torch.
                 W_mask = (W.flatten() < pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
+'''
 
 def prune_magnitude_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), matrix="q_proj"):
     # if "llama" in args.model:
@@ -1437,15 +1386,16 @@ def prune_magnitude_layer_structured(args, model, tokenizer, device=torch.device
         for name, module in subset.items():
             if matrix in name:
                 print(f"pruning layer {i} name {name}")
-                W = module.weight.data.clone()
+                # W = module.weight.data.clone()
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W)
                 kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
                 W_mask = (W_metric <= kth_value).view(W.shape)
-                W_mask = W_mask.to(W.device)
+                # W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
 
+'''
 # def entropy_pruning_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -1490,6 +1440,7 @@ def prune_magnitude_layer_structured(args, model, tokenizer, device=torch.device
                 W_mask = (W_metric <= pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
+'''
 
 def entropy_pruning_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), matrix="q_proj"):
     # if "llama" in args.model:
