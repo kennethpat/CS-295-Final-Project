@@ -1379,7 +1379,7 @@ def prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device=torch.
             W_mask = W_mask.to(W.device)
             module.weight.data[W_mask] = 0
 
-
+'''
 # def gradient_pruning_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -1405,7 +1405,9 @@ def prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device=torch.
             W_mask = (W_metric <= pruning_threshold).view(W.shape)
             W_mask = W_mask.to(W.device)
             module.weight.data[W_mask] = 0
+'''
 
+'''
 # def entropy_pruning_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -1429,9 +1431,9 @@ def prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device=torch.
             W_mask[:, W_metric <= pruning_threshold] = 1
             W_mask = W_mask.to(W.device)
             module.weight.data[W_mask] = 0
+'''
 
-
-
+'''
 # def prune_magnitude_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -1451,6 +1453,7 @@ def prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device=torch.
                 W_mask = (W.flatten() < pruning_threshold).view(W.shape)
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
+'''
 
 def prune_magnitude_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), matrix="q_proj"):
     # if "llama" in args.model:
@@ -1460,16 +1463,15 @@ def prune_magnitude_layer_structured(args, model, tokenizer, device=torch.device
 
     for i, layer in enumerate(layers):
         subset = find_layers(layer)
-        for name, module in subset.items():
-            if matrix in name:
+        for name, module in subset.items(): # q_proj
+            if 'mlp' in name:
                 print(f"pruning layer {i} name {name}")
-                W = module.weight.data.clone()
+                W = module.weight.data
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
                 W_metric = torch.abs(W)
                 kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
                 W_mask = (W_metric <= kth_value).view(W.shape)
-                W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
 
 '''
@@ -1552,14 +1554,13 @@ def gradient_pruning_layer_structured(args, model, tokenizer, device=torch.devic
 
     for i, layer in enumerate(layers):
         subset = find_layers(layer)
-        for name, module in subset.items():
-            if matrix in name:
+        for name, module in subset.items(): # q_proj
+            if 'mlp' in name:
                 print(f"pruning layer {i} name {name}")
-                W = module.weight.data.clone()
+                W = module.weight.data
                 num_weights = W.numel()
                 num_prune = int(num_weights * args.sparsity_ratio)
-                W_metric = torch.abs(W_grads[name])
+                W_metric = torch.abs(W)
                 kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
                 W_mask = (W_metric <= kth_value).view(W.shape)
-                W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
