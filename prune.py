@@ -1224,6 +1224,7 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
 
+'''
 # def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -1324,6 +1325,7 @@ def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0")
                 W_mask[:, W_metric <= pruning_threshold] = 1
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
+'''
 
 def entropy_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
@@ -1469,6 +1471,7 @@ def prune_magnitude_layer_structured(args, model, tokenizer, device=torch.device
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
 
+'''
 # def entropy_pruning_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -1489,6 +1492,7 @@ def prune_magnitude_layer_structured(args, model, tokenizer, device=torch.device
                 W_mask[:, W_metric <= pruning_threshold] = 1
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
+'''
 
 '''
 # def gradient_pruning_layer_structured(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
