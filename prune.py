@@ -1060,6 +1060,7 @@ def find_layers(module, layers=[torch.nn.Linear], name=''):
                 W_mask = W_mask.to(W.device)
                 module.weight.data[W_mask] = 0
 
+'''
 def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     # if "llama" in args.model:
     layers = model.model.layers
@@ -1078,6 +1079,26 @@ def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"),
                 kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
                 W_mask = (W_metric <= kth_value).view(W.shape)
                 W_mask = W_mask.to(W.device)
+                module.weight.data[W_mask] = 0
+'''
+
+def prune_magnitude_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    # if "llama" in args.model:
+    layers = model.model.layers
+    # elif "opt" in args.model:
+    #     layers = model.model.decoder.layers
+    for i, layer in enumerate(layers):
+        subset = find_layers(layer)
+
+        for name, module in subset.items(): # q_proj
+            if 'mlp' in name:
+                print(f"pruning layer {i} name {name}")
+                W = module.weight.data
+                num_weights = W.numel()
+                num_prune = int(num_weights * args.sparsity_ratio)
+                W_metric = torch.abs(W)
+                kth_value, kth_index = W_metric.view(-1).kthvalue(num_prune)
+                W_mask = (W_metric <= kth_value).view(W.shape)
                 module.weight.data[W_mask] = 0
 
 # def gradient_pruning_layer(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
