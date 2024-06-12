@@ -15,10 +15,10 @@ print('# of gpus: ', torch.cuda.device_count())
 
 def get_llm(model_name, cache_dir="llm_weights", seqlen=2048):
     model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.float16,
-        cache_dir=cache_dir,
-        low_cpu_mem_usage=True,
+        model_name, 
+        torch_dtype=torch.float16, 
+        cache_dir=cache_dir, 
+        low_cpu_mem_usage=True, 
         device_map="auto"
     )
 
@@ -34,9 +34,9 @@ def main():
     parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
     parser.add_argument('--seqlen', type=int, default=2048, help='Sequence length')
     parser.add_argument('--sparsity_ratio', type=float, default=0.5, help='Sparsity level')
-    parser.add_argument("--sparsity_type", type=str, default="unstructured", help="Sparsity type, choose from unstructured, 4:8, 1:4, 2:4, 3:4. \
-                        Please choose from the corresponding sparsity ratio")
-    parser.add_argument("--prune_method", type=str, choices=["genetic_prune", "svd_finetuned", "magnitude", "ri", "wanda", "svd_ri", "svd", "sparsegpt", "ria"])
+    parser.add_argument("--sparsity_type", type=str, default="unstructured", help="Sparsity type, choose from unstructured or structured")
+    parser.add_argument("--prune_method", type=str, choices=["magnitude", "gradient", "entropy", "monte_carlo", "ria", "sparsegpt", "magnitude_layer", "gradient_layer", "entropy_layer"])
+    parser.add_argument("--matrix", type=str, choices=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"], help="Matrix to prune for structured pruning")
     parser.add_argument("--cache_dir", default="llm_weights", type=str )
     parser.add_argument('--save', action="store_true")
     parser.add_argument('--save_model', type=str, default=None, help='Path to save the pruned model.')
@@ -55,16 +55,13 @@ def main():
     parser.add_argument("--svd_threshold", type=float, default=1e-3)
     parser.add_argument("--fast", action="store_true")
     args = parser.parse_args()
+
     if args.use_cusparselt:
         SparseSemiStructuredTensor._FORCE_CUTLASS = False
+
     # Setting seeds for reproducibility
     np.random.seed(args.seed)
     torch.random.manual_seed(args.seed)
-
-    # Handling n:m sparsity
-    prune_n, prune_m = 0, 0
-    if args.sparsity_type != "unstructured":
-        prune_n, prune_m = map(int, args.sparsity_type.split(":"))
 
     model_name = args.model.split("/")[-1]
     print(f"loading llm model {args.model}")
@@ -74,41 +71,57 @@ def main():
         tokenizer = GPT2Tokenizer.from_pretrained(args.model, use_fast=False)
     else:
         tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
-    # device = torch.device("cuda:0")
-    # if "30b" in args.model or "65b" in args.model: # for 30b and 65b we use device_map to load onto multiple A6000 GPUs, thus the processing here.
-    if torch.cuda.device_count() == 1:
-        device = torch.device("cuda:0")
-    else:
+    device = torch.device("cuda:0")
+    if "30b" in args.model or "65b" in args.model:
         device = model.hf_device_map["lm_head"]
     print("use device ", device)
     print(model)
+
     if args.sparsity_ratio != 0:
         print("pruning starts")
-        from lib.prune import prune_magnitude, prune_sparsegpt, prune_ria, check_sparsity, genetic_prune
-        if args.prune_method == "wanda":
-            prune_ria(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "magnitude":
-            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "sparsegpt":
-            prune_sparsegpt(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        from lib.prune import prune_magnitude, gradient_pruning, entropy_pruning, prune_magnitude_Monte_Carlo, prune_ria, prune_sparsegpt, prune_magnitude_layer, gradient_pruning_layer, entropy_pruning_layer, check_sparsity, prune_magnitude_Monte_Carlo_structured, prune_magnitude_layer_structured, gradient_pruning_layer_structured, entropy_pruning_layer_structured
+
+        # Compute gradients
+        dummy_input = torch.randint(0, model.config.vocab_size, (1, args.seqlen), dtype=torch.long, device=device)
+        dummy_output = model(dummy_input)[0]
+        loss = dummy_output.sum()  # Create a scalar tensor to call backward on
+        loss.backward()
+
+        if args.prune_method == "magnitude":
+            prune_magnitude(args, model, tokenizer, device)
+        elif args.prune_method == "gradient":
+            gradient_pruning(args, model, tokenizer, device)
+        elif args.prune_method == "entropy":
+            entropy_pruning(args, model, tokenizer, device)
+        elif args.prune_method == "monte_carlo":
+            prune_magnitude_Monte_Carlo(args, model, tokenizer, device)
         elif args.prune_method == "ria":
-            prune_ria(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "ri":
-            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "svd":
-            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "svd_ri":
-            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "svd_finetuned":
-            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "genetic_prune":
-            genetic_prune(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+            prune_ria(args, model, tokenizer, device)
+        elif args.prune_method == "sparsegpt":
+            prune_sparsegpt(args, model, tokenizer, device)
+        elif args.prune_method == "magnitude_layer":
+            prune_magnitude_layer(args, model, tokenizer, device)
+        elif args.prune_method == "gradient_layer":
+            gradient_pruning_layer(args, model, tokenizer, device)
+        elif args.prune_method == "entropy_layer":
+            entropy_pruning_layer(args, model, tokenizer, device)
+        elif args.sparsity_type == "structured":
+            if args.prune_method == "magnitude_layer":
+                prune_magnitude_layer_structured(args, model, tokenizer, device, matrix=args.matrix)
+            elif args.prune_method == "gradient_layer":
+                gradient_pruning_layer_structured(args, model, tokenizer, device, matrix=args.matrix)
+            elif args.prune_method == "entropy_layer":
+                entropy_pruning_layer_structured(args, model, tokenizer, device, matrix=args.matrix)
+            elif args.prune_method == "monte_carlo":
+                prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device, matrix=args.matrix)
+
         ################################################################
-        print("*"*30)
+        print("*" * 30)
         sparsity_ratio = check_sparsity(args, model)
         print(f"sparsity sanity check {sparsity_ratio:.4f}")
-        print("*"*30)
+        print("*" * 30)
         ################################################################
+
     ppl_test = eval_ppl(model, tokenizer, args.eval_dataset, args.test_bs, device)
     print(f"wikitext perplexity {ppl_test}")
 
@@ -126,22 +139,19 @@ def main():
             print("method\tactual_sparsity\tsparsity_pattern\treallocation\timportance_score\tlsa\tppl_test", file=f, flush=True)
             print(f"{args.prune_method}\t{sparsity_ratio:.4f}\t{args.sparsity_type}\t{args.reallocation}\t{args.importance_score}\t{args.lsa}\t{ppl_test:.4f}", file=f, flush=True)
 
-
     if args.save_model:
         model.save_pretrained(args.save_model)
         tokenizer.save_pretrained(args.save_model)
 
     import gc
-
     del model
     gc.collect()
     torch.cuda.empty_cache()
 
     if args.eval_zero_shot:
-        accelerate=True
+        accelerate = True
         task_list = ["boolq", "rte", "hellaswag", "arc_challenge", "mnli"]
         num_shot = 0
-
 
         if args.save_model:
             results = eval_zero_shot(args.save_model, task_list, num_shot, accelerate)
