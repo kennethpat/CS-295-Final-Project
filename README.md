@@ -94,7 +94,7 @@ Monte Carlo with 2:4 sparsity
 
 ```
 
-python main.py --model ../Meta-Llama-3-8B/ --prune_method monte_carlo --sparsity_ratio 0.5 --sparsity_type unstrucutred --semi_sparse_acc --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method monte_carlo --sparsity_ratio 0.5 --sparsity_type 2:4 --semi_sparse_acc --save
 
 ```
 
