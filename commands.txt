@@ -1,0 +1,26 @@
+# 2:4 pruning with RIA
+nohup python main.py --model ../llama-2-7b-hf/ --prune_method ria --sparsity_ratio 0.5 --sparsity_type 2:4 --semi_sparse_acc --use_cusparselt --save > semi_struc_2_4_ria_50_rnd2.txt 2>&1 &
+
+# 1% sparsity_ratio with magnitude for comparison
+nohup python main.py --model ../llama-2-7b-hf/ --prune_method magnitude --sparsity_ratio 0.01 --sparsity_type unstructured --save > unstructured_1_perc_mag.txt 2>&1 &
+
+# 50% unstructured sparsity_ratio with RIA
+nohup python main.py --model ../llama-2-7b-hf/ --prune_method ria --sparsity_ratio 0.5 --sparsity_type unstructured --save > unstructured_50_2nd.txt 2>&1 &
+
+# 75% unstructured pruning only on mlp layers
+nohup python main.py --model ../llama-2-7b-hf/ --prune_method ria --sparsity_ratio 0.75 --sparsity_type unstructured --save > unstructured_75_mlp_only.txt 2>&1 &
+
+# 50% mlp layers and 25% self atten layers unstructured pruing : overall 41.71% pruned
+nohup python main.py --model ../llama-2-7b-hf/ --prune_method ria --sparsity_ratio 0.75 --sparsity_type unstructured --save > unstructured_50_mlp_25_attn.txt 2>&1 &
+
+# overall 41.71% unstructured pruning equally on all layers
+nohup python main.py --model ../llama-2-7b-hf/ --prune_method ria --sparsity_ratio 0.4171 --sparsity_type unstructured --save > unstructured_4171.txt 2>&1 &
+
+# 5% structured magnitude layer pruning on the gate_proj matrix
+python main.py --model ../Meta-Llama-3-8B/ --sparsity_type structured --prune_method magnitude_layer --matrix gate_proj --sparsity_ratio 0.05 --save
+
+# 10% structured magnitude layer pruning on the up_proj matrix
+python main.py --model ../Meta-Llama-3-8B/ --sparsity_type structured --prune_method magnitude_layer --matrix up_proj --sparsity_ratio 0.10 --save
+
+# 40% structured magnitude layer pruning on the down_proj matrix
+python main.py --model ../Meta-Llama-3-8B/ --sparsity_type structured --prune_method magnitude_layer --matrix down_proj --sparsity_ratio 0.40 --save
