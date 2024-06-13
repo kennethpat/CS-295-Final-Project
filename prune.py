@@ -948,3 +948,21 @@ def genetic_prune(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             for name, module in subset.items():
                 module.weight.data[mask[(i, name)]] = 0
     get_result(model, best_individual)
+
+# execution time profiler
+'''
+for name in subset:
+    if "mlp" in name:
+        args.sparsity_ratio = 0.5
+    else:
+        args.sparsity_ratio=0.25
+'''
+
+# Forward pass through the model
+'''
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+    with record_function("model_inference"):
+        lm_logits = model(inputs).logits
+# exit()
+print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
+'''
