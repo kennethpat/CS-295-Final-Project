@@ -79,8 +79,8 @@ def main():
 
     if args.sparsity_ratio != 0:
         print("pruning starts")
-        from lib.prune import prune_magnitude, gradient_pruning, entropy_pruning, prune_magnitude_Monte_Carlo, prune_ria, prune_sparsegpt, prune_magnitude_layer, gradient_pruning_layer, entropy_pruning_layer, check_sparsity, prune_magnitude_Monte_Carlo_structured, prune_magnitude_layer_structured, gradient_pruning_layer_structured, entropy_pruning_layer_structured
-
+        # from lib.prune import prune_magnitude, gradient_pruning, entropy_pruning, prune_magnitude_Monte_Carlo, prune_ria, prune_sparsegpt, prune_magnitude_layer, gradient_pruning_layer, entropy_pruning_layer, check_sparsity, prune_magnitude_Monte_Carlo_structured, prune_magnitude_layer_structured, gradient_pruning_layer_structured, entropy_pruning_layer_structured
+        import lib.prune
         # Compute gradients
         dummy_input = torch.randint(0, model.config.vocab_size, (1, args.seqlen), dtype=torch.long, device=device)
         dummy_output = model(dummy_input)[0]
@@ -115,6 +115,8 @@ def main():
             elif args.prune_method == "entropy_layer":
                 print("entropy_layer selected.")
                 entropy_pruning_layer(args, model, tokenizer, device)
+            elif args.prune_method == "genetic_prune":
+                genetic_prune(args, model, tokenizer, device)
         elif args.sparsity_type == "structured":
             if args.prune_method == "magnitude_layer":
                 print("structured magnitude_layer selected.")
