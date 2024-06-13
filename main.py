@@ -87,6 +87,48 @@ def main():
         loss = dummy_output.sum()  # Create a scalar tensor to call backward on
         loss.backward()
 
+        if args.sparsity_type == "unstructured":
+            if args.prune_method == "magnitude":
+                print("magnitude selected.")
+                prune_magnitude(args, model, tokenizer, device)
+            elif args.prune_method == "gradient":
+                print("gradient selected.")
+                gradient_pruning(args, model, tokenizer, device)
+            elif args.prune_method == "entropy":
+                print("entropy selected.")
+                entropy_pruning(args, model, tokenizer, device)
+            elif args.prune_method == "monte_carlo":
+                print("monte_carlo selected.")
+                prune_magnitude_Monte_Carlo(args, model, tokenizer, device)
+            elif args.prune_method == "ria":
+                print("ria selected.")
+                prune_ria(args, model, tokenizer, device)
+            elif args.prune_method == "sparsegpt":
+                print("sparsegpt selected.")
+                prune_sparsegpt(args, model, tokenizer, device)
+            elif args.prune_method == "magnitude_layer":
+                print("magnitude_layer selected.")
+                prune_magnitude_layer(args, model, tokenizer, device)
+            elif args.prune_method == "gradient_layer":
+                print("gradient_layer selected.")
+                gradient_pruning_layer(args, model, tokenizer, device)
+            elif args.prune_method == "entropy_layer":
+                print("entropy_layer selected.")
+                entropy_pruning_layer(args, model, tokenizer, device)
+        elif args.sparsity_type == "structured":
+            if args.prune_method == "magnitude_layer":
+                print("structured magnitude_layer selected.")
+                prune_magnitude_layer_structured(args, model, tokenizer, device, matrix=args.matrix)
+            elif args.prune_method == "gradient_layer":
+                print("structured gradient_layer selected.")
+                gradient_pruning_layer_structured(args, model, tokenizer, device, matrix=args.matrix)
+            elif args.prune_method == "entropy_layer":
+                print("structured entropy_layer selected.")
+                entropy_pruning_layer_structured(args, model, tokenizer, device, matrix=args.matrix)
+            elif args.prune_method == "monte_carlo":
+                print("structured monte_carlo selected.")
+                prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device, matrix=args.matrix)
+        '''
         if args.prune_method == "magnitude":
             prune_magnitude(args, model, tokenizer, device)
         elif args.prune_method == "gradient":
@@ -114,7 +156,7 @@ def main():
                 entropy_pruning_layer_structured(args, model, tokenizer, device, matrix=args.matrix)
             elif args.prune_method == "monte_carlo":
                 prune_magnitude_Monte_Carlo_structured(args, model, tokenizer, device, matrix=args.matrix)
-
+        '''
         ################################################################
         print("*" * 30)
         sparsity_ratio = check_sparsity(args, model)
