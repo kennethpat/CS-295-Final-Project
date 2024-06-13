@@ -132,4 +132,3 @@ def get_loaders(name, nsamples=128, seed=0, seqlen=2048, tokenizer=None):
     #     return get_c4(nsamples, seed, seqlen, tokenizer)
     # if "ptb" in name:
     #     return get_ptb(nsamples, seed, seqlen, tokenizer)
-        (base) [osamiull@login-i15:/pub/osamiull/Relative-importance-and-activation-pruning/lib] $
