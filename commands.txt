@@ -24,3 +24,9 @@ python main.py --model ../Meta-Llama-3-8B/ --sparsity_type structured --prune_me
 
 # 40% structured magnitude layer pruning on the down_proj matrix
 python main.py --model ../Meta-Llama-3-8B/ --sparsity_type structured --prune_method magnitude_layer --matrix down_proj --sparsity_ratio 0.40 --save
+
+python main.py --model ../Meta-Llama-3-8B/ --prune_method ria --sparsity_ratio 0.5 --sparsity_type 2:4 --semi_sparse_acc --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method monte_carlo --sparsity_ratio 0.5 --sparsity_type 2:4 --semi_sparse_acc --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method monte_carlo --sparsity_ratio 0.5 --sparsity_type unstrucutred --semi_sparse_acc --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method gradient --sparsity_ratio 0.5 --sparsity_type unstructured --semi_sparse_acc --save
+python main.py --model ../Meta-Llama-3-8B/ --prune_method magntitude --sparsity_ratio 0.5 --sparsity_type unstructured --semi_sparse_acc --save
