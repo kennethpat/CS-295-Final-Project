@@ -51,7 +51,7 @@ def get_ptb(nsamples, seed, seqlen, tokenizer):
         tar = inp.clone()
         tar[:, :-1] = -100
         trainloader.append((inp, tar))
-        
+
     return trainloader, testenc
 
 def get_pile(nsamples, seed, seqlen, tokenizer):
@@ -111,7 +111,7 @@ def get_c4(nsamples, seed, seqlen, tokenizer):
 
 # Function to select the appropriate loader based on dataset name
 def get_loaders(name, nsamples=128, seed=0, seqlen=2048, tokenizer=None):
-    
+
     while True:
         try:
             if 'wikitext2' in name:
@@ -132,4 +132,4 @@ def get_loaders(name, nsamples=128, seed=0, seqlen=2048, tokenizer=None):
     #     return get_c4(nsamples, seed, seqlen, tokenizer)
     # if "ptb" in name:
     #     return get_ptb(nsamples, seed, seqlen, tokenizer)
-        
+        (base) [osamiull@login-i15:/pub/osamiull/Relative-importance-and-activation-pruning/lib] $
