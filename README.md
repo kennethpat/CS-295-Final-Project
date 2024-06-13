@@ -74,6 +74,30 @@ python main.py \
 	--save \
 ```
 
+75% unstructured pruning only on mlp layers
+
+```
+
+nohup python main.py --model ../llama-2-7b-hf/ --prune_method ria --sparsity_ratio 0.75 --sparsity_type unstructured --save > unstructured_75_mlp_only.txt 2>&1 &
+
+```
+
+5% structured magnitude layer pruning on the gate_proj matrix
+
+```
+
+python main.py --model ../Meta-Llama-3-8B/ --sparsity_type structured --prune_method magnitude_layer --matrix gate_proj --sparsity_ratio 0.05 --save
+
+```
+
+Genetic pruning
+
+```
+
+python main.py --model ../../llama-3-8B/ --prune_method genetic_prune --sparsity_ratio 0.7 --sparsity_type unstructured --cache_dir . --save
+
+```
+
 sparsity_type can be any type of semi-structured sparsity pattern, for instance: 1:4, 2:4.
 
 Enable `--reallocation` if you want to use heuristic channel reallocation.
